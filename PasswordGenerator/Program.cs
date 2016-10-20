@@ -1,13 +1,9 @@
 ﻿using System;
-using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security;
-using System.Threading.Tasks;
+using PasswordGenerator.CommandLine;
 
 namespace PasswordGenerator
 {
@@ -15,11 +11,25 @@ namespace PasswordGenerator
     {
         private static void Main(string[] args)
         {
-            ArgumentState argumentState = null;
-
             try
             {
-                argumentState = ArgumentState.Parse(args);
+                ExecutionContext executionContext = ExecutionContext.Parse(args, true);
+
+                if (executionContext.ShowHelp)
+                {
+                    Console.WriteLine(ExecutionContext.GetHelpText());
+                }
+                else
+                {
+                    if (executionContext.Verbose)
+                    {
+                        ExecuteWithDistributionAnalysis(executionContext);
+                    }
+                    else
+                    {
+                        Execute(executionContext);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -28,24 +38,7 @@ namespace PasswordGenerator
                 Console.Error.WriteLine(ex.Message);
                 Console.ForegroundColor = previousColor;
 
-                Environment.Exit(1);
-
-            }
-
-            if (argumentState.ShowHelp)
-            {
-                Console.WriteLine(ArgumentState.GetHelpText());
-            }
-            else
-            {
-                if (argumentState.Verbose)
-                {
-                    ExecuteWithDistributionAnalysis(argumentState);
-                }
-                else
-                {
-                    Execute(argumentState);
-                }
+                Environment.ExitCode = 1;
             }
 
             if (Debugger.IsAttached)
@@ -54,28 +47,28 @@ namespace PasswordGenerator
             }
         }
 
-        private static void Execute(ArgumentState argumentState)
+        private static void Execute(ExecutionContext executionContext)
         {
-            var generator = new PasswordGenerator(argumentState.Requirements);
-            for (int i = 0; i < argumentState.Count; i++)
+            var generator = new PasswordGenerator(executionContext.RuleSet);
+            for (int i = 0; i < executionContext.Count; i++)
             {
-                string result = GeneratePassword(generator, argumentState.Length);
+                string result = GeneratePassword(generator, executionContext.Length);
 
                 Console.WriteLine(result);
             }
         }
 
-        private static void ExecuteWithDistributionAnalysis(ArgumentState argumentState)
+        private static void ExecuteWithDistributionAnalysis(ExecutionContext executionContext)
         {
-            var generator = new PasswordGenerator(argumentState.Requirements);
+            var generator = new PasswordGenerator(executionContext.RuleSet);
 
-            Dictionary<CharType, int> distribution = argumentState.Requirements.ToDictionary(r => r.CharType, r => 0);
-            Dictionary<CharType, Dictionary<char, int>> typeDistribution =
-                argumentState.Requirements.ToDictionary(r => r.CharType, r => r.CharType.Chars.ToDictionary(c => c, c => 0));
+            Dictionary<CharacterSet, int> distribution = executionContext.RuleSet.Requirements.ToDictionary(r => r.CharacterSet, r => 0);
+            Dictionary<CharacterSet, Dictionary<char, int>> setDistribution =
+                executionContext.RuleSet.Requirements.ToDictionary(r => r.CharacterSet, r => r.CharacterSet.Chars.ToDictionary(c => c, c => 0));
 
-            for (int i = 0; i < argumentState.Count; i++)
+            for (int i = 0; i < executionContext.Count; i++)
             {
-                string result = GeneratePassword(generator, argumentState.Length);
+                string result = GeneratePassword(generator, executionContext.Length);
 
                 Console.WriteLine(result);
 
@@ -83,17 +76,17 @@ namespace PasswordGenerator
                 {
                     var type = distribution.Keys.Single(ct => ct.Chars.Contains(c));
                     distribution[type]++;
-                    typeDistribution[type][c]++;
+                    setDistribution[type][c]++;
                 }
             }
 
             Console.WriteLine();
             Console.WriteLine("PASSWORD REQUIREMENTS");
-            Console.WriteLine(string.Join("\r\n\r\n", argumentState.Requirements.Select(r => r.ToString())));
+            Console.WriteLine(string.Join("\r\n\r\n", executionContext.RuleSet.Requirements.Select(r => r.GetDefinition())));
             Console.WriteLine();
 
             double totalCharCount = distribution.Values.Sum();
-            foreach (var kvp in typeDistribution)
+            foreach (var kvp in setDistribution)
             {
                 Console.WriteLine($"== {kvp.Key.Name} [{Math.Round(distribution[kvp.Key]/totalCharCount*100, 2)}] ==");
 

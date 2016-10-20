@@ -1,3 +1,4 @@
+using PasswordGenerator.Random;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,33 +11,33 @@ namespace PasswordGenerator
 {
     public class PasswordGenerator
     {
-        public PasswordGenerator(IEnumerable<CharTypeRequirement> requirements)
+        public PasswordGenerator(RuleSet ruleSet)
         {
-            Requirements = new ReadOnlyCollection<CharTypeRequirement>(requirements.ToArray());
+            RuleSet = ruleSet;
         }
         
-        public IReadOnlyCollection<CharTypeRequirement> Requirements { get; }
+        public RuleSet RuleSet { get; }
 
         public SecureString Generate(int length)
         {
-            return PasswordGeneratorInteral.Generate(Requirements, length);
+            return PasswordGeneratorInteral.Generate(RuleSet, length);
         }
 
 
         private class PasswordGeneratorInteral
         {
-            private PasswordGeneratorInteral(IEnumerable<CharTypeRequirement> requirements, int length) : this(requirements, length, new RandomProvider())
+            private PasswordGeneratorInteral(RuleSet ruleSet, int length) : this(ruleSet, length, new RandomProvider())
             { }
-            private PasswordGeneratorInteral(IEnumerable<CharTypeRequirement> requirements, int length, IRandomProvider randomProvider)
+            private PasswordGeneratorInteral(RuleSet ruleSet, int length, IRandomProvider randomProvider)
             {
-                if (requirements == null)
+                if (ruleSet == null)
                 {
-                    throw new ArgumentNullException(nameof(requirements));
+                    throw new ArgumentNullException(nameof(ruleSet));
                 }
 
-                if (!requirements.Any())
+                if (!ruleSet.IsValid)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(requirements));
+                    throw new ArgumentException("Invalid Rule Set", nameof(ruleSet));
                 }
 
                 if (randomProvider == null)
@@ -44,26 +45,25 @@ namespace PasswordGenerator
                     throw new ArgumentNullException(nameof(randomProvider));
                 }
 
-                int requirementsMinCount = requirements.Sum(r => r.MinCount);
-                if (length < requirementsMinCount)
+                if (length < ruleSet.MinLength)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(length), length, $"{nameof(length)} is shorter than the requirements specify ({requirementsMinCount}).");
+                    throw new ArgumentOutOfRangeException(nameof(length), length, $"{nameof(length)} is shorter than what is needed to meet the requirements ({ruleSet.MinLength}).");
                 }
 
                 Length = length;
-                RequirementResults = requirements.Select(r => new CharTypeResult(r)).ToList();
+                SetResults = ruleSet.Requirements.Select(r => new CharacterSetResult(r)).ToList();
                 RandomProvider = randomProvider;
                 GeneratedPassword = new SecureString();
             }
 
             private int Length { get; }
-            private List<CharTypeResult> RequirementResults { get; }
+            private List<CharacterSetResult> SetResults { get; }
             private IRandomProvider RandomProvider { get; }
             private SecureString GeneratedPassword { get; }
 
-            public static SecureString Generate(IEnumerable<CharTypeRequirement> requirements, int length)
+            public static SecureString Generate(RuleSet ruleSet, int length)
             {
-                var generator = new PasswordGeneratorInteral(requirements, length);
+                var generator = new PasswordGeneratorInteral(ruleSet, length);
 
                 return generator.Generate();
             }
@@ -72,13 +72,13 @@ namespace PasswordGenerator
             {
                 for (int i = 0; i < Length; i++)
                 {
-                    GenerateNextCharacter(i, RequirementResults);
+                    GenerateNextCharacter(i, SetResults);
                 }
 
-                var incompleteTypes = RequirementResults.Where(r => r.RequirementDelta < 0);
+                var incompleteTypes = SetResults.Where(r => r.RequirementDelta < 0);
                 while (incompleteTypes.Any())
                 {
-                    var overCompleteType = GetNextCharTypeResult(RequirementResults.Where(r => r.RequirementDelta > 0));
+                    var overCompleteType = GetNextCharTypeResult(SetResults.Where(r => r.RequirementDelta > 0));
                     var charIndexToReplace = overCompleteType.Indicies.ElementAt(RandomProvider.Next(overCompleteType.Indicies.Count()));
                     overCompleteType.RemoveIndex(charIndexToReplace);
 
@@ -90,10 +90,10 @@ namespace PasswordGenerator
                 return GeneratedPassword;
             }
 
-            private void GenerateNextCharacter(int index, IEnumerable<CharTypeResult> typeResults, bool replace = false)
+            private void GenerateNextCharacter(int index, IEnumerable<CharacterSetResult> setResults, bool replace = false)
             {
-                var typeResult = GetNextCharTypeResult(typeResults);
-                char character = GetNextCharacter(typeResult.CharType.Chars);
+                var typeResult = GetNextCharTypeResult(setResults);
+                char character = GetNextCharacter(typeResult.CharacterSet.Chars);
 
                 typeResult.AddIndex(index);
 
@@ -113,41 +113,41 @@ namespace PasswordGenerator
                 return characters[index];
             }
 
-            private CharTypeResult GetNextCharTypeResult(IEnumerable<CharTypeResult> typeResults)
+            private CharacterSetResult GetNextCharTypeResult(IEnumerable<CharacterSetResult> setResults)
             {
-                if (typeResults == null || !typeResults.Any())
+                if (setResults == null || !setResults.Any())
                 {
-                    throw new ArgumentOutOfRangeException(nameof(typeResults));
+                    throw new ArgumentOutOfRangeException(nameof(setResults));
                 }
 
-                int index = RandomProvider.Next(typeResults.Count());
+                int index = RandomProvider.Next(setResults.Count());
 
-                return typeResults.ElementAt(index);
+                return setResults.ElementAt(index);
             }
         }
 
-        private class CharTypeResult
+        private class CharacterSetResult
         {
             private readonly List<int> _indicies = new List<int>();
 
-            public CharTypeResult(CharType charType, int minCount)
+            public CharacterSetResult(CharacterSet characterSet, int minCount)
             {
-                CharType = charType;
+                CharacterSet = characterSet;
                 MinCount = minCount;
             }
 
-            public CharTypeResult(CharTypeRequirement requirement)
+            public CharacterSetResult(CharacterSetRequirement requirement)
             {
                 if (requirement == null)
                 {
                     throw new ArgumentNullException(nameof(requirement));
                 }
 
-                CharType = requirement.CharType;
+                CharacterSet = requirement.CharacterSet;
                 MinCount = requirement.MinCount;
             }
 
-            public CharType CharType { get; }
+            public CharacterSet CharacterSet { get; }
             public int MinCount { get; }
 
             public int RequirementDelta => _indicies.Count - MinCount;

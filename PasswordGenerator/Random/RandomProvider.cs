@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Security.Cryptography;
 
-namespace PasswordGenerator
+namespace PasswordGenerator.Random
 {
     public class RandomProvider : IRandomProvider
     {
