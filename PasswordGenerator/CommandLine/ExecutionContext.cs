@@ -1,27 +1,24 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using PasswordGenerator.CommandLine.Configuration;
 
 namespace PasswordGenerator.CommandLine
 {
-    class ExecutionContext
+    sealed class ExecutionContext
     {
-        private const char KeyValueSeparator = ':';
-
-        public const int DefaultPasswordLength = 12;
-        public const int DefaultPasswordCount = 1;
-
         private ExecutionContext()
         {
             RuleSet = new RuleSet();
         }
 
-        public int Length { get; private set; } = DefaultPasswordLength;
-        public int Count { get; private set; } = DefaultPasswordCount;
+        public int Length { get; private set; } = GetDefaultPasswordLength();
+        public int Count { get; private set; } = Constants.DefaultPasswordCount;
 
         public bool Verbose { get; private set; }
         public bool ShowHelp { get; private set; }
@@ -31,7 +28,7 @@ namespace PasswordGenerator.CommandLine
         {
             var context = new ExecutionContext();
 
-            char[] separator = new[] { KeyValueSeparator };
+            char[] separator = new[] { Constants.KeyValueSeparator };
 
             foreach (string arg in args)
             {
@@ -53,10 +50,41 @@ namespace PasswordGenerator.CommandLine
             
             if (!context.RuleSet.IsValid && defaultFallback)
             {
-                context.RuleSet = RuleSet.Default;
+                context.RuleSet = GetDefaultRuleSet();
             }
 
             return context;
+        }
+
+        public static RuleSet GetDefaultRuleSet()
+        {
+            RuleSet ruleSet = RuleSet.Default;
+
+            RuleSetConfig config = GetDefaultRuleSetConfig();
+            if (config != null)
+            {
+                IEnumerable<CharacterSetRequirement> requirements = RuleSetConfig.DefaultRuleSetConfig.Requirements
+                    .All
+                    .Select(
+                        r => new CharacterSetRequirement(new CharacterSet(r.Name, r.CharacterArray), r.MinCount));
+
+                ruleSet = new RuleSet(requirements);
+            }
+
+            return ruleSet;
+        }
+
+        public static int GetDefaultPasswordLength()
+        {
+            int length = Constants.DefaultPasswordLength;
+
+            RuleSetConfig config = GetDefaultRuleSetConfig();
+            if (config != null)
+            {
+                length = config.PasswordLength;
+            }
+
+            return length;
         }
 
         public static string GetHelpText()
@@ -71,6 +99,27 @@ namespace PasswordGenerator.CommandLine
             }
 
             return builder.ToString();
+        }
+
+        private static RuleSetConfig GetDefaultRuleSetConfig()
+        {
+            RuleSetConfig config = null;
+
+            try
+            {
+                config = RuleSetConfig.DefaultRuleSetConfig;
+            }
+            catch (Exception ex)
+            {
+                var previousColor = Console.ForegroundColor;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Error.WriteLine(ex.Message);
+                Console.ForegroundColor = previousColor;
+
+                config = null;
+            }
+
+            return config;
         }
 
         #region Argument Evaluator Definitions
